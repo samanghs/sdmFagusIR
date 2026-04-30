@@ -1,0 +1,51 @@
+# ==============================================================================
+# Framework: 'sdm' package (Naimi & Araújo, 2016)
+# ==============================================================================
+# 1. DATA PREPARATION ----------------------------------------------------------
+# Creating the sdmData object:
+# - bg: Generated 1,092 background points (pseudo-absences) using 'gRandom' method
+# - A 1:1 prevalence ratio (Presence:Background) was used to maximize model discrimination
+SDM_Data_C <- sdmData(formula = Occurrence ~ .,
+                      train = Data_SP, 
+                      predictors = MyExpl.Final.R_C,
+                      bg = list(n = 1092, method = "gRandom", remove = TRUE))
+
+# 2. MODEL TRAINING & CALIBRATION ----------------------------------------------
+# We utilize four algorithms (Machine Learning & Entropy-based)
+# - Replications: 5-fold Cross-Validation
+# set.seed(123)
+Models_C <- sdm(Occurrence ~ .,
+                data = SDM_Data_C, 
+                methods = c("rf", "maxent", "brt", "svm"),
+                replications = c('cv'),
+                test.p = 20, 
+                n = 3, 
+                parallelSetting = list(ncore = 8, method = 'parallel'))
+
+# 3. SPATIAL PREDICTION --------------------------------------------------------
+# Generate continuous suitability maps for the current period
+Pred_C <- predict(Models_C,
+                  newdata = MyExpl.Final.R_C,
+                  filename = 'Results/Predict_Current.tif',
+                  overwrite = TRUE)
+
+# 4. ENSEMBLE CONSENSUS --------------------------------------------------------
+# Creating a weighted ensemble to mitigate individual algorithm bias:
+# - method = 'weighted': Models are combined based on their performance
+# - expr: Quality filter—only models with AUC > 0.7 and TSS > 0.6 are included
+# - stat = 'tss': Weights are determined by the True Skill Statistic
+# - opt = 2: Threshold optimized via 'Maximum Sensitivity plus Specificity' (MaxSS)
+# - power = 2: Squaring weights to amplify the influence of the highest-performing models
+Ens_C <- ensemble(Models_C, 
+                  newdata = Pred_C, 
+                  filename = 'Results/Ens_Current.tif',
+                  setting = list(method = c('weighted'), 
+                                 stat = 'tss', 
+                                 expr = 'auc > 0.7 & tss > 0.6', 
+                                 opt = 2, 
+                                 power = 2), 
+                  overwrite = TRUE)
+
+# 5. FUTURE PROJECTIONS --------------------------------------------------------
+# The same workflow (predict & ensemble) is applied to future GCMs (SSP1-2.6/SSP5-8.5)
+# to evaluate range shifts and identify stable climatic refugia.
